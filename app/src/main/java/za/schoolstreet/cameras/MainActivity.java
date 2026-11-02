@@ -25,6 +25,8 @@ import android.widget.TextView;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.Calendar;
+import java.util.List;
 
 /** Opens straight into the recorder's Channel-Zero grid and keeps it running. */
 public class MainActivity extends Activity implements SurfaceHolder.Callback {
@@ -52,6 +54,19 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private boolean started;
     private volatile long lastGoodAt;
 
+    private static final int ALERT_PORT = 8787;
+    private static final int OPENAPI_PORT = 20443;
+    private static final int BANNER_MS = 15000;
+    private static final int NOTICE_MS = 6000;
+
+    private final AlertPolicy alertPolicy = new AlertPolicy();
+    private TextView banner;
+    private final Runnable hideBanner = () -> banner.setVisibility(View.GONE);
+    private AlertServer alertServer;
+    private AlarmTone alarmTone;
+    private boolean linkLoginRejected;
+    private volatile boolean recorderSeen;
+
     /** A short drop right after good video recovers on its own, so no message is needed. */
     private boolean recentlyPlaying() {
         return System.currentTimeMillis() - lastGoodAt < QUIET_RECOVERY_MS;
@@ -74,7 +89,134 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         status.setGravity(Gravity.CENTER);
         status.setPadding(80, 40, 80, 40);
         root.addView(status);
+        banner = new TextView(this);
+        banner.setTextColor(Color.WHITE);
+        banner.setBackgroundColor(0xE0B00020);
+        banner.setTextSize(26);
+        banner.setGravity(Gravity.CENTER);
+        banner.setPadding(40, 24, 40, 24);
+        banner.setVisibility(View.GONE);
+        root.addView(banner, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP));
         setContentView(root);
+    }
+
+    private void startAlerts() {
+        if (!BuildConfig.ALERTS || alertServer != null || !hasLogin()) {
+            return;
+        }
+        recorderSeen = false;
+        if (alarmTone == null) {
+            alarmTone = new AlarmTone(this);
+        }
+        try {
+            alertServer = new AlertServer(ALERT_PORT, RECORDER_HOST, this::onRecorderMessage);
+            alertServer.start();
+        } catch (IOException e) {
+            showBanner("Alerts are off: " + e.getMessage(), BANNER_MS);
+            return;
+        }
+        if (!linkLoginRejected) {
+            String user = prefs.getString("user", "");
+            String password = prefs.getString("password", "");
+            String path = "/cameras-alert-" + installId();
+            new Thread(() -> linkToRecorder(user, password, path), "recorder-link").start();
+        }
+    }
+
+    private void stopAlerts() {
+        if (alertServer != null) {
+            alertServer.close();
+            alertServer = null;
+        }
+        if (alarmTone != null) {
+            alarmTone.stop();
+        }
+        handler.removeCallbacks(hideBanner);
+        banner.setVisibility(View.GONE);
+    }
+
+    private String installId() {
+        String id = prefs.getString("install", null);
+        if (id == null) {
+            id = Long.toHexString(System.nanoTime() ^ System.currentTimeMillis());
+            prefs.edit().putString("install", id).apply();
+        }
+        return id;
+    }
+
+    /** Runs once each time the app opens. A refused login is not retried, to avoid locking the account. */
+    private void linkToRecorder(String user, String password, String path) {
+        String notice;
+        try {
+            String myAddress = RecorderLink.localAddressFacing(RECORDER_HOST, OPENAPI_PORT);
+            new RecorderLink("https://" + RECORDER_HOST + ":" + OPENAPI_PORT, RECORDER_HOST, user, password)
+                    .register(myAddress, ALERT_PORT, path);
+            notice = "Human alerts are on";
+        } catch (RecorderLink.LoginRejected e) {
+            linkLoginRejected = true;
+            notice = "Alerts are off: " + e.getMessage();
+        } catch (IOException e) {
+            notice = "Alerts are off: can't link to the recorder (" + e.getMessage() + ")";
+        }
+        String message = notice;
+        handler.post(() -> {
+            if (started) {
+                showBanner(message, NOTICE_MS);
+            }
+        });
+    }
+
+    private void onRecorderMessage(String body) {
+        List<AlertParser.Alert> alerts = AlertParser.humanAlerts(body);
+        handler.post(() -> {
+            if (!started) {
+                return;
+            }
+            if (!recorderSeen) {
+                recorderSeen = true;
+                if (alerts.isEmpty()) {
+                    showBanner("The recorder reached this TV", NOTICE_MS);
+                }
+            }
+            for (AlertParser.Alert alert : alerts) {
+                onHumanAlert(alert);
+            }
+        });
+    }
+
+    private void onHumanAlert(AlertParser.Alert alert) {
+        AlertPolicy.Action action = alertPolicy.decide(alert.channel, System.currentTimeMillis(),
+                Calendar.getInstance().get(Calendar.HOUR_OF_DAY));
+        if (action == AlertPolicy.Action.NONE) {
+            return;
+        }
+        String where = alert.name.isEmpty() ? "camera " + alert.channel : alert.name;
+        showBanner("Person detected: " + where, BANNER_MS);
+        if (action == AlertPolicy.Action.SOUND) {
+            alarmTone.play();
+        }
+    }
+
+    private void showBanner(String message, int forMs) {
+        banner.setText(message);
+        banner.setVisibility(View.VISIBLE);
+        handler.removeCallbacks(hideBanner);
+        handler.postDelayed(hideBanner, forMs);
+    }
+
+    @Override
+    public boolean onKeyUp(int keyCode, KeyEvent event) {
+        boolean ok = keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER;
+        if (BuildConfig.ALERTS && ok && event.isTracking() && !event.isCanceled()) {
+            alertPolicy.mute(System.currentTimeMillis());
+            if (alarmTone != null) {
+                alarmTone.stop();
+            }
+            showBanner("Alert sound off for 30 minutes", NOTICE_MS);
+            return true;
+        }
+        return super.onKeyUp(keyCode, event);
     }
 
     @Override
@@ -84,6 +226,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         hideSystemBars();
         if (hasLogin()) {
             startFeed();
+            startAlerts();
         } else {
             showLogin();
         }
@@ -94,6 +237,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         super.onStop();
         started = false;
         stopFeed();
+        stopAlerts();
     }
 
     @Override
@@ -205,7 +349,10 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                             .putString("user", user.getText().toString().trim())
                             .putString("password", password.getText().toString())
                             .apply();
+                    linkLoginRejected = false;
                     startFeed();
+                    stopAlerts();
+                    startAlerts();
                 })
                 .create();
         loginDialog.show();

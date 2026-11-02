@@ -10,7 +10,7 @@
         android:allowBackup="false"
         android:banner="@drawable/banner"
         android:icon="@drawable/icon"
-        android:label="Cameras"
+        android:label="${appLabel}"
         android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen">
 
         <activity

@@ -21,6 +21,27 @@ android {
         versionName = "1.2"
     }
 
+    buildFeatures {
+        buildConfig = true
+    }
+
+    flavorDimensions += "kind"
+    productFlavors {
+        create("plain") {
+            dimension = "kind"
+            buildConfigField("boolean", "ALERTS", "false")
+            manifestPlaceholders["appLabel"] = "Cameras"
+        }
+        create("alert") {
+            dimension = "kind"
+            applicationIdSuffix = ".alert"
+            versionCode = 1
+            versionName = "1.0"
+            buildConfigField("boolean", "ALERTS", "true")
+            manifestPlaceholders["appLabel"] = "Cameras Alert"
+        }
+    }
+
     signingConfigs {
         create("release") {
             storeFile = rootProject.file(keystoreProps.getProperty("storeFile", "cameras.keystore"))
