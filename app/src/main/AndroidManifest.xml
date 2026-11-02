@@ -11,7 +11,7 @@
         android:banner="@drawable/banner"
         android:icon="@drawable/icon"
         android:label="${appLabel}"
-        android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen">
+        android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen">
 
         <activity
             android:name=".MainActivity"

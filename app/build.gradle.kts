@@ -17,8 +17,8 @@ android {
         applicationId = "za.schoolstreet.cameras"
         minSdk = 26
         targetSdk = 34
-        versionCode = 3
-        versionName = "1.2"
+        versionCode = 4
+        versionName = "1.3"
     }
 
     buildFeatures {
@@ -35,8 +35,8 @@ android {
         create("alert") {
             dimension = "kind"
             applicationIdSuffix = ".alert"
-            versionCode = 1
-            versionName = "1.0"
+            versionCode = 2
+            versionName = "1.1"
             buildConfigField("boolean", "ALERTS", "true")
             manifestPlaceholders["appLabel"] = "Cameras Alert"
         }

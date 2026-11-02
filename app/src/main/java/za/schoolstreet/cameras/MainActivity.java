@@ -4,6 +4,8 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.SharedPreferences;
 import android.graphics.Color;
+import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
 import android.media.MediaCodec;
 import android.media.MediaFormat;
 import android.os.Build;
@@ -11,6 +13,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.InputType;
+import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.Surface;
@@ -18,6 +21,8 @@ import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.View;
 import android.view.WindowManager;
+import android.view.inputmethod.EditorInfo;
+import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
@@ -58,10 +63,18 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private static final int OPENAPI_PORT = 20443;
     private static final int BANNER_MS = 15000;
     private static final int NOTICE_MS = 6000;
+    private static final int SAFE_SIDE_DP = 48;
+    private static final int SAFE_TOP_DP = 27;
+    private static final int NOTICE_COLOR = 0xCC202020;
+    private static final int PERSON_COLOR = 0xE6B00020;
 
     private final AlertPolicy alertPolicy = new AlertPolicy();
     private TextView banner;
-    private final Runnable hideBanner = () -> banner.setVisibility(View.GONE);
+    private boolean personAlertShowing;
+    private final Runnable hideBanner = () -> {
+        banner.setVisibility(View.GONE);
+        personAlertShowing = false;
+    };
     private AlertServer alertServer;
     private AlarmTone alarmTone;
     private boolean linkLoginRejected;
@@ -82,23 +95,48 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         root.setBackgroundColor(Color.BLACK);
         surface = new SurfaceView(this);
         surface.getHolder().addCallback(this);
+        surface.setContentDescription("Camera grid");
         root.addView(surface);
+
         status = new TextView(this);
         status.setTextColor(Color.WHITE);
-        status.setTextSize(20);
+        status.setTextSize(18);
         status.setGravity(Gravity.CENTER);
-        status.setPadding(80, 40, 80, 40);
-        root.addView(status);
+        status.setPadding(dp(24), dp(16), dp(24), dp(16));
+        status.setMaxWidth(dp(560));
+        status.setBackground(panel(NOTICE_COLOR));
+        status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+        status.setVisibility(View.GONE);
+        root.addView(status, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER));
+
+        // A small corner label inside the area every TV is sure to show, covering as little video as possible.
         banner = new TextView(this);
         banner.setTextColor(Color.WHITE);
-        banner.setBackgroundColor(0xE0B00020);
-        banner.setTextSize(26);
-        banner.setGravity(Gravity.CENTER);
-        banner.setPadding(40, 24, 40, 24);
+        banner.setTextSize(18);
+        banner.setTypeface(Typeface.DEFAULT_BOLD);
+        banner.setPadding(dp(16), dp(10), dp(16), dp(10));
+        banner.setMaxLines(3);
+        banner.setEllipsize(TextUtils.TruncateAt.END);
+        banner.setMaxWidth(getResources().getDisplayMetrics().widthPixels * 45 / 100);
+        banner.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_ASSERTIVE);
         banner.setVisibility(View.GONE);
-        root.addView(banner, new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP));
+        FrameLayout.LayoutParams corner = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP | Gravity.END);
+        corner.setMargins(dp(SAFE_SIDE_DP), dp(SAFE_TOP_DP), dp(SAFE_SIDE_DP), dp(SAFE_TOP_DP));
+        root.addView(banner, corner);
         setContentView(root);
+    }
+
+    private int dp(int value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
+    }
+
+    private GradientDrawable panel(int color) {
+        GradientDrawable shape = new GradientDrawable();
+        shape.setColor(color);
+        shape.setCornerRadius(dp(8));
+        return shape;
     }
 
     private void startAlerts() {
@@ -133,7 +171,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             alarmTone.stop();
         }
         handler.removeCallbacks(hideBanner);
-        banner.setVisibility(View.GONE);
+        hideBanner.run();
     }
 
     private String installId() {
@@ -192,13 +230,21 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             return;
         }
         String where = alert.name.isEmpty() ? "camera " + alert.channel : alert.name;
-        showBanner("Person detected: " + where, BANNER_MS);
+        showLabel("Person: " + where, PERSON_COLOR, BANNER_MS);
+        personAlertShowing = true;
         if (action == AlertPolicy.Action.SOUND) {
             alarmTone.play();
         }
     }
 
+    /** Grey for information. Red is kept for a person, so the two can't be confused at a glance. */
     private void showBanner(String message, int forMs) {
+        showLabel(message, NOTICE_COLOR, forMs);
+        personAlertShowing = false;
+    }
+
+    private void showLabel(String message, int color, int forMs) {
+        banner.setBackground(panel(color));
         banner.setText(message);
         banner.setVisibility(View.VISIBLE);
         handler.removeCallbacks(hideBanner);
@@ -208,7 +254,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     @Override
     public boolean onKeyUp(int keyCode, KeyEvent event) {
         boolean ok = keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER;
-        if (BuildConfig.ALERTS && ok && event.isTracking() && !event.isCanceled()) {
+        if (BuildConfig.ALERTS && ok && personAlertShowing && event.isTracking() && !event.isCanceled()) {
             alertPolicy.mute(System.currentTimeMillis());
             if (alarmTone != null) {
                 alarmTone.stop();
@@ -326,37 +372,76 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         stopFeed();
 
         EditText user = new EditText(this);
-        user.setHint("Recorder username");
         user.setSingleLine(true);
+        user.setImeOptions(EditorInfo.IME_ACTION_NEXT);
         user.setText(prefs.getString("user", "admin"));
         EditText password = new EditText(this);
-        password.setHint("Recorder password");
         password.setSingleLine(true);
+        password.setImeOptions(EditorInfo.IME_ACTION_DONE);
         password.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
 
         LinearLayout form = new LinearLayout(this);
         form.setOrientation(LinearLayout.VERTICAL);
-        form.setPadding(48, 24, 48, 0);
+        form.setPadding(dp(24), dp(8), dp(24), 0);
+        form.addView(fieldLabel("Username"));
         form.addView(user);
+        form.addView(fieldLabel("Password"));
         form.addView(password);
 
-        loginDialog = new AlertDialog.Builder(this)
+        boolean canGoBack = hasLogin();
+        AlertDialog.Builder builder = new AlertDialog.Builder(this)
                 .setTitle("Recorder login")
+                .setMessage("Saved on this TV, so you only enter it once.")
                 .setView(form)
-                .setCancelable(false)
-                .setPositiveButton("Save", (dialog, which) -> {
-                    prefs.edit()
-                            .putString("user", user.getText().toString().trim())
-                            .putString("password", password.getText().toString())
-                            .apply();
-                    linkLoginRejected = false;
-                    startFeed();
-                    stopAlerts();
-                    startAlerts();
-                })
-                .create();
+                .setCancelable(canGoBack)
+                .setPositiveButton("Save", null);
+        if (canGoBack) {
+            builder.setNegativeButton("Cancel", (dialog, which) -> resumeAfterLogin())
+                    .setOnCancelListener(dialog -> resumeAfterLogin());
+        }
+        loginDialog = builder.create();
         loginDialog.show();
+
+        Button save = loginDialog.getButton(AlertDialog.BUTTON_POSITIVE);
+        save.setOnClickListener(view -> {
+            if (user.getText().toString().trim().isEmpty()) {
+                user.setError("Enter the username");
+                user.requestFocus();
+            } else if (password.getText().toString().isEmpty()) {
+                password.setError("Enter the password");
+                password.requestFocus();
+            } else {
+                prefs.edit()
+                        .putString("user", user.getText().toString().trim())
+                        .putString("password", password.getText().toString())
+                        .apply();
+                linkLoginRejected = false;
+                loginDialog.dismiss();
+                stopAlerts();
+                resumeAfterLogin();
+            }
+        });
+        password.setOnEditorActionListener((view, actionId, event) -> {
+            if (actionId == EditorInfo.IME_ACTION_DONE) {
+                save.performClick();
+                return true;
+            }
+            return false;
+        });
         password.requestFocus();
+    }
+
+    private void resumeAfterLogin() {
+        startFeed();
+        startAlerts();
+    }
+
+    private TextView fieldLabel(String text) {
+        TextView label = new TextView(this);
+        label.setText(text);
+        label.setTextSize(14);
+        label.setPadding(0, dp(12), 0, 0);
+        return label;
     }
 
     @Override
@@ -418,7 +503,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             } catch (RtspSession.LoginRejected e) {
                 report(e.getMessage(), false);
             } catch (Exception e) {
-                report(e.getClass().getSimpleName() + " at \"" + step + "\": " + e.getMessage(), true);
+                report("Can't show the cameras right now.\n(" + step + ": " + e.getMessage() + ")", true);
             } finally {
                 releaseCodec();
             }
