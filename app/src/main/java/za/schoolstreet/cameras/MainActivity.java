@@ -4,13 +4,17 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.SharedPreferences;
 import android.graphics.Color;
-import android.net.Uri;
+import android.media.MediaCodec;
+import android.media.MediaFormat;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.InputType;
 import android.view.Gravity;
 import android.view.KeyEvent;
+import android.view.Surface;
+import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.View;
 import android.view.WindowManager;
@@ -19,28 +23,20 @@ import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
-import androidx.annotation.OptIn;
-import androidx.media3.common.MediaItem;
-import androidx.media3.common.PlaybackException;
-import androidx.media3.common.Player;
-import androidx.media3.common.util.UnstableApi;
-import androidx.media3.exoplayer.DefaultLoadControl;
-import androidx.media3.exoplayer.DefaultRenderersFactory;
-import androidx.media3.exoplayer.ExoPlayer;
-import androidx.media3.exoplayer.rtsp.RtspMediaSource;
+import java.io.IOException;
+import java.nio.ByteBuffer;
 
 /** Opens straight into the recorder's Channel-Zero grid and keeps it running. */
-@OptIn(markerClass = UnstableApi.class)
-public class MainActivity extends Activity {
+public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
-    private static final String RECORDER = "192.168.0.224:554";
+    private static final String RECORDER_HOST = "192.168.0.224";
+    private static final int RECORDER_PORT = 554;
     private static final String GRID_PATH = "/live/0/1/avm";
 
     private static final int WATCHDOG_INTERVAL_MS = 2000;
     private static final int FROZEN_AFTER_MS = 8000;
-    private static final int MAX_DELAY_MS = 4000;
-    private static final int RETRY_DELAY_MS = 2000;
-    private static final int FAILURES_BEFORE_HELP = 3;
+    private static final int FIRST_PICTURE_TIMEOUT_MS = 15000;
+    private static final int RETRY_DELAY_MS = 3000;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable watchdog = this::checkFeed;
@@ -49,12 +45,10 @@ public class MainActivity extends Activity {
     private SharedPreferences prefs;
     private SurfaceView surface;
     private TextView status;
-    private ExoPlayer player;
+    private Surface videoSurface;
+    private Feed feed;
     private AlertDialog loginDialog;
-
-    private long lastPosition;
-    private long lastProgressAt;
-    private int failures;
+    private boolean started;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -65,11 +59,13 @@ public class MainActivity extends Activity {
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(Color.BLACK);
         surface = new SurfaceView(this);
+        surface.getHolder().addCallback(this);
         root.addView(surface);
         status = new TextView(this);
         status.setTextColor(Color.WHITE);
-        status.setTextSize(22);
+        status.setTextSize(20);
         status.setGravity(Gravity.CENTER);
+        status.setPadding(80, 40, 80, 40);
         root.addView(status);
         setContentView(root);
     }
@@ -77,6 +73,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onStart() {
         super.onStart();
+        started = true;
         hideSystemBars();
         if (hasLogin()) {
             startFeed();
@@ -88,7 +85,27 @@ public class MainActivity extends Activity {
     @Override
     protected void onStop() {
         super.onStop();
+        started = false;
         stopFeed();
+    }
+
+    @Override
+    public void surfaceCreated(SurfaceHolder holder) {
+        videoSurface = holder.getSurface();
+        if (started && hasLogin() && (loginDialog == null || !loginDialog.isShowing())) {
+            startFeed();
+        }
+    }
+
+    @Override
+    public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
+        // The decoder scales to whatever size the surface is.
+    }
+
+    @Override
+    public void surfaceDestroyed(SurfaceHolder holder) {
+        stopFeed();
+        videoSurface = null;
     }
 
     private boolean hasLogin() {
@@ -97,89 +114,49 @@ public class MainActivity extends Activity {
 
     private void startFeed() {
         stopFeed();
-        showStatus(failures >= FAILURES_BEFORE_HELP
-                ? "Can't reach the recorder. Still trying.\nHold OK to change the login."
-                : "Connecting…");
-
-        DefaultLoadControl loadControl = new DefaultLoadControl.Builder()
-                .setBufferDurationsMs(500, 2000, 250, 250)
-                .setPrioritizeTimeOverSizeThresholds(true)
-                .build();
-        DefaultRenderersFactory renderers = new DefaultRenderersFactory(this)
-                .setEnableDecoderFallback(true)
-                .setAllowedVideoJoiningTimeMs(0);
-
-        player = new ExoPlayer.Builder(this, renderers)
-                .setLoadControl(loadControl)
-                .build();
-        player.setVideoSurfaceView(surface);
-        player.addListener(new Player.Listener() {
-            @Override
-            public void onRenderedFirstFrame() {
-                failures = 0;
-                showStatus(null);
-            }
-
-            @Override
-            public void onPlayerError(PlaybackException error) {
-                failures++;
-                stopFeed();
-                handler.postDelayed(retry, RETRY_DELAY_MS);
-            }
-        });
-
-        player.setMediaSource(new RtspMediaSource.Factory()
-                .setForceUseRtpTcp(true)
-                .setTimeoutMs(8000)
-                .createMediaSource(MediaItem.fromUri(gridUri())));
-        player.setPlayWhenReady(true);
-        player.prepare();
-
-        lastPosition = 0;
-        lastProgressAt = System.currentTimeMillis();
+        if (!started || videoSurface == null || !hasLogin()) {
+            return;
+        }
+        showStatus("Connecting…");
+        feed = new Feed(videoSurface, prefs.getString("user", ""), prefs.getString("password", ""));
+        feed.start();
         handler.postDelayed(watchdog, WATCHDOG_INTERVAL_MS);
     }
 
     private void stopFeed() {
         handler.removeCallbacks(watchdog);
         handler.removeCallbacks(retry);
-        if (player != null) {
-            player.release();
-            player = null;
+        if (feed != null) {
+            feed.shutdown();
+            feed = null;
         }
     }
 
-    /** Restarts the feed if the picture stops moving or falls behind live. */
+    /** Restarts the feed if the picture stops moving. */
     private void checkFeed() {
-        if (player == null) {
+        if (feed == null) {
             return;
         }
         long now = System.currentTimeMillis();
-        long position = player.getCurrentPosition();
-        if (position != lastPosition) {
-            lastPosition = position;
-            lastProgressAt = now;
-        }
-        if (now - lastProgressAt > FROZEN_AFTER_MS) {
-            failures++;
-            startFeed();
-            return;
-        }
-        if (player.getTotalBufferedDuration() > MAX_DELAY_MS) {
-            startFeed();
+        boolean frozen = feed.lastPictureAt > 0
+                ? now - feed.lastPictureAt > FROZEN_AFTER_MS
+                : now - feed.startedAt > FIRST_PICTURE_TIMEOUT_MS;
+        if (frozen) {
+            feedFailed(feed, "No picture arrived. Last step: " + feed.step + ".", true);
             return;
         }
         handler.postDelayed(watchdog, WATCHDOG_INTERVAL_MS);
     }
 
-    private Uri gridUri() {
-        String login = Uri.encode(prefs.getString("user", "")) + ":"
-                + Uri.encode(prefs.getString("password", ""));
-        return new Uri.Builder()
-                .scheme("rtsp")
-                .encodedAuthority(login + "@" + RECORDER)
-                .encodedPath(GRID_PATH)
-                .build();
+    private void feedFailed(Feed failed, String detail, boolean tryAgain) {
+        if (failed != feed) {
+            return;
+        }
+        stopFeed();
+        showStatus(detail + "\n\n" + (tryAgain ? "Trying again. " : "") + "Hold OK to change the login.");
+        if (tryAgain) {
+            handler.postDelayed(retry, RETRY_DELAY_MS);
+        }
     }
 
     private void showStatus(String message) {
@@ -217,7 +194,6 @@ public class MainActivity extends Activity {
                             .putString("user", user.getText().toString().trim())
                             .putString("password", password.getText().toString())
                             .apply();
-                    failures = 0;
                     startFeed();
                 })
                 .create();
@@ -248,5 +224,151 @@ public class MainActivity extends Activity {
                 View.SYSTEM_UI_FLAG_FULLSCREEN
                         | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
                         | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
+    }
+
+    /** One connection: reads the stream and hands each frame straight to the hardware decoder. */
+    private final class Feed extends Thread implements RtspSession.Listener {
+        private static final long INPUT_WAIT_US = 10000;
+        private static final long INPUT_GIVE_UP_MS = 200;
+
+        final long startedAt = System.currentTimeMillis();
+        volatile long lastPictureAt;
+        volatile String step = "Starting";
+
+        private final Surface target;
+        private final String user;
+        private final String password;
+        private final MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
+        private volatile RtspSession session;
+        private volatile boolean stopping;
+        private MediaCodec codec;
+
+        Feed(Surface target, String user, String password) {
+            super("camera-feed");
+            this.target = target;
+            this.user = user;
+            this.password = password;
+        }
+
+        @Override
+        public void run() {
+            try {
+                session = new RtspSession(RECORDER_HOST, RECORDER_PORT, GRID_PATH, user, password, this);
+                if (!stopping) {
+                    session.run();
+                }
+            } catch (RtspSession.LoginRejected e) {
+                report(e.getMessage(), false);
+            } catch (Exception e) {
+                report(e.getClass().getSimpleName() + " at \"" + step + "\": " + e.getMessage(), true);
+            } finally {
+                releaseCodec();
+            }
+        }
+
+        private void report(String detail, boolean tryAgain) {
+            if (!stopping) {
+                handler.post(() -> feedFailed(this, detail, tryAgain));
+            }
+        }
+
+        void shutdown() {
+            stopping = true;
+            RtspSession current = session;
+            if (current != null) {
+                current.close();
+            }
+            try {
+                join(1500);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+
+        @Override
+        public void onStep(String newStep) {
+            step = newStep;
+            if (lastPictureAt == 0 && !stopping) {
+                handler.post(() -> {
+                    if (feed == this) {
+                        showStatus(newStep + "…");
+                    }
+                });
+            }
+        }
+
+        @Override
+        public void onVideoConfig(String mime, byte[] csd0, byte[] csd1) throws IOException {
+            step = "Starting the " + mime + " decoder";
+            MediaFormat format = MediaFormat.createVideoFormat(mime, 1920, 1080);
+            format.setByteBuffer("csd-0", ByteBuffer.wrap(csd0));
+            if (csd1 != null) {
+                format.setByteBuffer("csd-1", ByteBuffer.wrap(csd1));
+            }
+            format.setInteger(MediaFormat.KEY_PRIORITY, 0);
+            if (Build.VERSION.SDK_INT >= 30) {
+                format.setInteger(MediaFormat.KEY_LOW_LATENCY, 1);
+            }
+            codec = MediaCodec.createDecoderByType(mime);
+            codec.configure(format, target, null, 0);
+            codec.setVideoScalingMode(MediaCodec.VIDEO_SCALING_MODE_SCALE_TO_FIT);
+            codec.start();
+        }
+
+        @Override
+        public void onAccessUnit(byte[] data, int length, long ptsUs, boolean keyFrame) {
+            long giveUpAt = System.currentTimeMillis() + INPUT_GIVE_UP_MS;
+            while (!stopping) {
+                int index = codec.dequeueInputBuffer(INPUT_WAIT_US);
+                drainPictures();
+                if (index >= 0) {
+                    ByteBuffer buffer = codec.getInputBuffer(index);
+                    buffer.clear();
+                    if (length <= buffer.remaining()) {
+                        buffer.put(data, 0, length);
+                        codec.queueInputBuffer(index, 0, length, ptsUs, 0);
+                    } else {
+                        codec.queueInputBuffer(index, 0, 0, ptsUs, 0);
+                    }
+                    break;
+                }
+                if (System.currentTimeMillis() > giveUpAt) {
+                    break;
+                }
+            }
+            drainPictures();
+        }
+
+        /** Shows every finished picture immediately, so nothing builds up into a delay. */
+        private void drainPictures() {
+            while (true) {
+                int index = codec.dequeueOutputBuffer(info, 0);
+                if (index >= 0) {
+                    codec.releaseOutputBuffer(index, true);
+                    if (lastPictureAt == 0) {
+                        handler.post(() -> {
+                            if (feed == this) {
+                                showStatus(null);
+                            }
+                        });
+                    }
+                    lastPictureAt = System.currentTimeMillis();
+                } else if (index == MediaCodec.INFO_TRY_AGAIN_LATER) {
+                    return;
+                }
+            }
+        }
+
+        private void releaseCodec() {
+            if (codec != null) {
+                try {
+                    codec.stop();
+                } catch (RuntimeException ignored) {
+                    // The decoder may already have failed.
+                }
+                codec.release();
+                codec = null;
+            }
+        }
     }
 }
