@@ -42,7 +42,10 @@ final class RtspSession implements Closeable {
 
     private static final int CONNECT_TIMEOUT_MS = 5000;
     private static final int READ_TIMEOUT_MS = 6000;
+    private static final int STREAM_TIMEOUT_MS = 4000;
     private static final long KEEPALIVE_MS = 20000;
+    private static final long RECEIVER_REPORT_MS = 5000;
+    private static final byte[] RECEIVER_REPORT = {'$', 0, 0, 8, (byte) 0x80, (byte) 201, 0, 1, 0x43, 0x41, 0x4D, 0x53};
     private static final byte[] START_CODE = {0, 0, 0, 1};
     private static final Pattern AUTH_PARAM = Pattern.compile("(\\w+)=\"?([^\",]*)\"?");
     private static final Pattern INTERLEAVED = Pattern.compile("interleaved=(\\d+)");
@@ -153,6 +156,7 @@ final class RtspSession implements Closeable {
         requireOk("PLAY", play);
 
         listener.onStep("Waiting for video");
+        socket.setSoTimeout(STREAM_TIMEOUT_MS);
         stream(videoChannel, base);
     }
 
@@ -168,6 +172,9 @@ final class RtspSession implements Closeable {
 
     private void stream(int videoChannel, String base) throws IOException {
         long nextKeepalive = System.currentTimeMillis() + KEEPALIVE_MS;
+        long nextReport = System.currentTimeMillis() + RECEIVER_REPORT_MS;
+        byte[] report = RECEIVER_REPORT.clone();
+        report[1] = (byte) (videoChannel + 1);
         while (true) {
             int first;
             try {
@@ -190,6 +197,11 @@ final class RtspSession implements Closeable {
                 readResponse(first);
             }
             long now = System.currentTimeMillis();
+            if (now >= nextReport) {
+                out.write(report);
+                out.flush();
+                nextReport = now + RECEIVER_REPORT_MS;
+            }
             if (now >= nextKeepalive) {
                 send("GET_PARAMETER", stripTrailingSlash(base), "");
                 nextKeepalive = now + KEEPALIVE_MS;

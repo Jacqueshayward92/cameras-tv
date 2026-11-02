@@ -33,10 +33,11 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private static final int RECORDER_PORT = 554;
     private static final String GRID_PATH = "/live/0/1/avm";
 
-    private static final int WATCHDOG_INTERVAL_MS = 2000;
-    private static final int FROZEN_AFTER_MS = 8000;
-    private static final int FIRST_PICTURE_TIMEOUT_MS = 15000;
-    private static final int RETRY_DELAY_MS = 3000;
+    private static final int WATCHDOG_INTERVAL_MS = 1000;
+    private static final int FROZEN_AFTER_MS = 5000;
+    private static final int FIRST_PICTURE_TIMEOUT_MS = 10000;
+    private static final int RETRY_DELAY_MS = 1000;
+    private static final int QUIET_RECOVERY_MS = 15000;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable watchdog = this::checkFeed;
@@ -49,6 +50,12 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private Feed feed;
     private AlertDialog loginDialog;
     private boolean started;
+    private volatile long lastGoodAt;
+
+    /** A short drop right after good video recovers on its own, so no message is needed. */
+    private boolean recentlyPlaying() {
+        return System.currentTimeMillis() - lastGoodAt < QUIET_RECOVERY_MS;
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -117,7 +124,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         if (!started || videoSurface == null || !hasLogin()) {
             return;
         }
-        showStatus("Connecting…");
+        if (!recentlyPlaying()) {
+            showStatus("Connecting…");
+        }
         feed = new Feed(videoSurface, prefs.getString("user", ""), prefs.getString("password", ""));
         feed.start();
         handler.postDelayed(watchdog, WATCHDOG_INTERVAL_MS);
@@ -153,7 +162,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             return;
         }
         stopFeed();
-        showStatus(detail + "\n\n" + (tryAgain ? "Trying again. " : "") + "Hold OK to change the login.");
+        if (!tryAgain || !recentlyPlaying()) {
+            showStatus(detail + "\n\n" + (tryAgain ? "Trying again. " : "") + "Hold OK to change the login.");
+        }
         if (tryAgain) {
             handler.postDelayed(retry, RETRY_DELAY_MS);
         }
@@ -290,7 +301,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             step = newStep;
             if (lastPictureAt == 0 && !stopping) {
                 handler.post(() -> {
-                    if (feed == this) {
+                    if (feed == this && !recentlyPlaying()) {
                         showStatus(newStep + "…");
                     }
                 });
@@ -353,6 +364,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                         });
                     }
                     lastPictureAt = System.currentTimeMillis();
+                    lastGoodAt = lastPictureAt;
                 } else if (index == MediaCodec.INFO_TRY_AGAIN_LATER) {
                     return;
                 }
