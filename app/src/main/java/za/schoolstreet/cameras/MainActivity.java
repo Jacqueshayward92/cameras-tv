@@ -202,7 +202,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         } catch (IOException e) {
             notice = "Alerts are off: can't link to the recorder (" + e.getMessage() + ")";
         }
-        String message = notice;
+        String message = RemoteButtonService.isSet(this) ? notice : notice + "\nPress OK to set a remote button";
         handler.post(() -> {
             if (started) {
                 showBanner(message, NOTICE_MS);
@@ -259,15 +259,35 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     @Override
     public boolean onKeyUp(int keyCode, KeyEvent event) {
         boolean ok = keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER;
-        if (BuildConfig.ALERTS && ok && personAlertShowing && event.isTracking() && !event.isCanceled()) {
-            alertPolicy.mute(System.currentTimeMillis());
-            if (alarmTone != null) {
-                alarmTone.stop();
+        boolean shortPress = event.isTracking() && !event.isCanceled()
+                && (event.getFlags() & KeyEvent.FLAG_CANCELED_LONG_PRESS) == 0;
+        if (BuildConfig.ALERTS && ok && shortPress) {
+            if (personAlertShowing) {
+                alertPolicy.mute(System.currentTimeMillis());
+                if (alarmTone != null) {
+                    alarmTone.stop();
+                }
+                showBanner("Alert sound off for 30 minutes", NOTICE_MS);
+            } else {
+                showMenu();
             }
-            showBanner("Alert sound off for 30 minutes", NOTICE_MS);
             return true;
         }
         return super.onKeyUp(keyCode, event);
+    }
+
+    private void showMenu() {
+        new AlertDialog.Builder(this)
+                .setTitle("Settings")
+                .setItems(new String[] {"Remote button", "Recorder login"}, (dialog, which) -> {
+                    if (which == 0) {
+                        showButtonSetup();
+                    } else {
+                        showLogin();
+                    }
+                })
+                .setNegativeButton("Close", null)
+                .show();
     }
 
     @Override
@@ -414,9 +434,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         if (canGoBack) {
             builder.setNegativeButton("Cancel", (dialog, which) -> resumeAfterLogin())
                     .setOnCancelListener(dialog -> resumeAfterLogin());
-            if (BuildConfig.ALERTS) {
-                builder.setNeutralButton("Remote button", (dialog, which) -> showButtonSetup());
-            }
         }
         loginDialog = builder.create();
         loginDialog.show();
@@ -476,7 +493,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         buttonDialog.setOnDismissListener(dialog -> {
             RemoteButtonService.stopLearning();
             buttonDialog = null;
-            resumeAfterLogin();
         });
         buttonDialog.show();
         if (on) {

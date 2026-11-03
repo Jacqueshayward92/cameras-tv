@@ -35,8 +35,8 @@ android {
         create("alert") {
             dimension = "kind"
             applicationIdSuffix = ".alert"
-            versionCode = 4
-            versionName = "1.3"
+            versionCode = 5
+            versionName = "1.4"
             buildConfigField("boolean", "ALERTS", "true")
             manifestPlaceholders["appLabel"] = "Cameras Alert"
         }
