@@ -5,8 +5,10 @@ import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
 import android.media.MediaCodec;
 import android.media.MediaFormat;
@@ -23,8 +25,10 @@ import android.view.Surface;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.view.inputmethod.EditorInfo;
+import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
@@ -72,10 +76,19 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private static final int PERSON_COLOR = 0xE6B00020;
     private static final int FRAME_COLOR = 0xFFFF1A1A;
     private static final int FRAME_STROKE_DP = 5;
+    private static final int NIGHT_HINT_MS = 4000;
+    private static final int HINT_OPENS = 3;
 
     private final AlertPolicy alertPolicy = new AlertPolicy();
     private TextView banner;
     private FrameHighlight frameHighlight;
+    private TextView nightCover;
+    private boolean screenDark;
+    private final Runnable clearNightHint = () -> {
+        nightCover.setText(null);
+        setScreenBrightness(0f);
+    };
+    private int wakingKey = KeyEvent.KEYCODE_UNKNOWN;
     private boolean personAlertShowing;
     private final Runnable hideBanner = () -> {
         banner.setVisibility(View.GONE);
@@ -136,7 +149,65 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP | Gravity.END);
         corner.setMargins(dp(SAFE_SIDE_DP), dp(SAFE_TOP_DP), dp(SAFE_SIDE_DP), dp(SAFE_TOP_DP));
         root.addView(banner, corner);
+
+        nightCover = new TextView(this);
+        nightCover.setBackgroundColor(Color.BLACK);
+        nightCover.setTextColor(Color.WHITE);
+        nightCover.setTextSize(24);
+        nightCover.setGravity(Gravity.CENTER);
+        nightCover.setVisibility(View.GONE);
+        root.addView(nightCover);
         setContentView(root);
+    }
+
+    /** Black screen only: the feed and alerts keep running underneath, so the picture is there at once. */
+    private void goDark() {
+        screenDark = true;
+        nightCover.setText("Night mode\nPress any button to light up");
+        nightCover.setVisibility(View.VISIBLE);
+        handler.postDelayed(clearNightHint, NIGHT_HINT_MS);
+    }
+
+    private void lightUp() {
+        if (screenDark) {
+            screenDark = false;
+            handler.removeCallbacks(clearNightHint);
+            nightCover.setVisibility(View.GONE);
+            setScreenBrightness(WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE);
+        }
+    }
+
+    private void toggleDark() {
+        if (screenDark) {
+            lightUp();
+        } else {
+            goDark();
+        }
+    }
+
+    private void setScreenBrightness(float brightness) {
+        WindowManager.LayoutParams params = getWindow().getAttributes();
+        params.screenBrightness = brightness;
+        getWindow().setAttributes(params);
+    }
+
+    /** While dark, the first press of any button only lights the screen, and does nothing else. */
+    @Override
+    public boolean dispatchKeyEvent(KeyEvent event) {
+        if (screenDark) {
+            if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                lightUp();
+                wakingKey = event.getKeyCode();
+            }
+            return true;
+        }
+        if (event.getKeyCode() == wakingKey) {
+            if (event.getAction() == KeyEvent.ACTION_UP) {
+                wakingKey = KeyEvent.KEYCODE_UNKNOWN;
+            }
+            return true;
+        }
+        return super.dispatchKeyEvent(event);
     }
 
     private int dp(int value) {
@@ -209,7 +280,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         } catch (IOException e) {
             notice = "Alerts are off: can't link to the recorder (" + e.getMessage() + ")";
         }
-        String message = RemoteButtonService.isSet(this) ? notice : notice + "\nPress OK to set a remote button";
+        int opens = prefs.getInt("opens", 0);
+        prefs.edit().putInt("opens", opens + 1).apply();
+        String message = opens < HINT_OPENS ? notice + "\nPress OK for settings" : notice;
         handler.post(() -> {
             if (started) {
                 showBanner(message, NOTICE_MS);
@@ -236,6 +309,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     }
 
     private void onHumanAlert(AlertParser.Alert alert) {
+        lightUp();
         // Stays lit for as long as the person is seen, even when the sound and label are holding back.
         frameHighlight.show(alert.channel, BANNER_MS);
         AlertPolicy.Action action = alertPolicy.decide(alert.channel, System.currentTimeMillis(),
@@ -244,6 +318,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             return;
         }
         String where = alert.name.isEmpty() ? "camera " + alert.channel : alert.name;
+        placeBanner(FrameGrid.labelGoesLeft(alert.channel));
         showLabel("Person: " + where, PERSON_COLOR, BANNER_MS);
         personAlertShowing = true;
         if (action == AlertPolicy.Action.SOUND) {
@@ -253,8 +328,16 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
     /** Grey for information. Red is kept for a person, so the two can't be confused at a glance. */
     private void showBanner(String message, int forMs) {
+        placeBanner(false);
         showLabel(message, NOTICE_COLOR, forMs);
         personAlertShowing = false;
+    }
+
+    /** Keeps a person label off the camera it is pointing out. */
+    private void placeBanner(boolean left) {
+        FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) banner.getLayoutParams();
+        params.gravity = Gravity.TOP | (left ? Gravity.START : Gravity.END);
+        banner.setLayoutParams(params);
     }
 
     private void showLabel(String message, int color, int forMs) {
@@ -286,17 +369,32 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     }
 
     private void showMenu() {
-        new AlertDialog.Builder(this)
-                .setTitle("Settings")
-                .setItems(new String[] {"Remote button", "Recorder login"}, (dialog, which) -> {
+        // The chosen row turns white with dark text, the way Google TV's own menus show focus.
+        ColorStateList rowText = new ColorStateList(
+                new int[][] {{android.R.attr.state_selected}, {}}, new int[] {Color.BLACK, Color.WHITE});
+        ArrayAdapter<String> rows = new ArrayAdapter<String>(this, android.R.layout.simple_list_item_1,
+                new String[] {"Night mode", "Set remote button", "Recorder login"}) {
+            @Override
+            public View getView(int position, View convertView, ViewGroup parent) {
+                TextView row = (TextView) super.getView(position, convertView, parent);
+                row.setTextColor(rowText);
+                row.setTextSize(22);
+                return row;
+            }
+        };
+        AlertDialog menu = new AlertDialog.Builder(this)
+                .setTitle("CCTV settings")
+                .setAdapter(rows, (dialog, which) -> {
                     if (which == 0) {
+                        goDark();
+                    } else if (which == 1) {
                         showButtonSetup();
                     } else {
                         showLogin();
                     }
                 })
-                .setNegativeButton("Close", null)
                 .show();
+        menu.getListView().setSelector(new ColorDrawable(Color.WHITE));
     }
 
     @Override
@@ -304,6 +402,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         super.onStart();
         started = true;
         hideSystemBars();
+        if (BuildConfig.ALERTS) {
+            RemoteButtonService.whenInFront(this::toggleDark);
+        }
         if (hasLogin()) {
             startFeed();
             startAlerts();
@@ -323,6 +424,10 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     @Override
     protected void onStop() {
         super.onStop();
+        if (BuildConfig.ALERTS) {
+            RemoteButtonService.whenInFront(null);
+        }
+        lightUp();
         if (buttonDialog != null) {
             buttonDialog.dismiss();
         }
@@ -482,11 +587,11 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     }
 
     private void showButtonSetup() {
-        AlertDialog.Builder builder = new AlertDialog.Builder(this).setTitle("Remote button");
+        AlertDialog.Builder builder = new AlertDialog.Builder(this).setTitle("Set remote button");
         boolean on = RemoteButtonService.isOn();
         if (on) {
             String chosen = RemoteButtonService.chosenName(this);
-            builder.setMessage("Press the button that should open this app. It will stop doing its usual job."
+            builder.setMessage("Press the button you want. It will open CCTV from anywhere, and switch night mode on and off once CCTV is open. It stops doing its usual job."
                             + (chosen == null ? "" : "\n\nNow using: " + chosen))
                     .setNegativeButton("Cancel", null);
             if (chosen != null) {
@@ -509,7 +614,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 if (buttonDialog != null) {
                     buttonDialog.dismiss();
                 }
-                showBanner(RemoteButtonService.chosenName(this) + " now opens this app", NOTICE_MS);
+                showBanner(RemoteButtonService.chosenName(this) + " now opens CCTV and switches night mode", NOTICE_MS);
             });
         }
     }

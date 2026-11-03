@@ -18,6 +18,7 @@ public class RemoteButtonService extends AccessibilityService {
 
     private static volatile boolean running;
     private static volatile Runnable learning;
+    private static volatile Runnable inFront;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
 
@@ -32,6 +33,11 @@ public class RemoteButtonService extends AccessibilityService {
 
     static void stopLearning() {
         learning = null;
+    }
+
+    /** What the chosen button does while the app is already open. Null means it opens the app. */
+    static void whenInFront(Runnable action) {
+        inFront = action;
     }
 
     static boolean isSet(Context context) {
@@ -91,7 +97,12 @@ public class RemoteButtonService extends AccessibilityService {
             return false;
         }
         if (pressed && event.getRepeatCount() == 0) {
-            startActivity(new Intent(this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            Runnable action = inFront;
+            if (action != null) {
+                handler.post(action);
+            } else {
+                startActivity(new Intent(this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            }
         }
         return true;
     }

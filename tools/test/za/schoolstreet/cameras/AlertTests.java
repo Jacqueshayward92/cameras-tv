@@ -147,6 +147,10 @@ public final class AlertTests {
         check("14: Back Yard starts the fourth row", FrameGrid.cellOf(15) == 15);
         check("Chantel: Voordeur is bottom right", FrameGrid.cellOf(8) == 24);
         check("a channel not in the grid draws nothing", FrameGrid.cellOf(26) == -1);
+        check("a person at top right moves the label left", FrameGrid.labelGoesLeft(4));
+        check("a person at top left leaves the label right", !FrameGrid.labelGoesLeft(19));
+        check("a person lower down leaves the label right", !FrameGrid.labelGoesLeft(14));
+        check("an unknown channel leaves the label right", !FrameGrid.labelGoesLeft(26));
     }
 
     private static void remoteButton() {

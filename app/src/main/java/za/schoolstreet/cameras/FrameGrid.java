@@ -18,6 +18,12 @@ final class FrameGrid {
     private FrameGrid() {
     }
 
+    /** The label normally sits top right, so a person in the top row's right half moves it across. */
+    static boolean labelGoesLeft(int channel) {
+        int cell = cellOf(channel);
+        return cell >= SIDE / 2 && cell < SIDE;
+    }
+
     /** The cell number for a channel, or -1 if the channel isn't in the grid. */
     static int cellOf(int channel) {
         for (int cell = 0; cell < CHANNELS.length; cell++) {
