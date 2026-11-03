@@ -116,8 +116,8 @@ public final class AlertTests {
         AlertPolicy daytime = new AlertPolicy();
         check("daytime shows but stays quiet", daytime.decide(1, start, day) == AlertPolicy.Action.BANNER);
         check("18:00 sounds", new AlertPolicy().decide(1, start, 18) == AlertPolicy.Action.SOUND);
-        check("05:00 sounds", new AlertPolicy().decide(1, start, 5) == AlertPolicy.Action.SOUND);
-        check("06:00 stays quiet", new AlertPolicy().decide(1, start, 6) == AlertPolicy.Action.BANNER);
+        check("06:00 sounds", new AlertPolicy().decide(1, start, 6) == AlertPolicy.Action.SOUND);
+        check("07:00 stays quiet", new AlertPolicy().decide(1, start, 7) == AlertPolicy.Action.BANNER);
 
         AlertPolicy muted = new AlertPolicy();
         muted.mute(start);
@@ -216,7 +216,11 @@ public final class AlertTests {
         List<String> blocked = Collections.synchronizedList(new ArrayList<String>());
         try (AlertServer server = new AlertServer(18788, "192.168.0.224", blocked::add)) {
             server.start();
-            post(18788, "", message, true);
+            try {
+                post(18788, "", message, true);
+            } catch (IOException ignored) {
+                // The listener can drop the connection before the message is written.
+            }
             Thread.sleep(300);
             check("messages from anything but the recorder are refused", blocked.isEmpty());
         }

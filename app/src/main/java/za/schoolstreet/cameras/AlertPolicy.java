@@ -12,7 +12,7 @@ final class AlertPolicy {
     static final long SOUND_REPEAT_MS = 10000;
     static final long MUTE_MS = 30 * 60000;
     private static final int SOUND_FROM_HOUR = 18;
-    private static final int SOUND_UNTIL_HOUR = 6;
+    private static final int SOUND_UNTIL_HOUR = 7;
 
     private final Map<Integer, Long> lastByCamera = new HashMap<>();
     private long lastSoundAt = Long.MIN_VALUE / 2;
