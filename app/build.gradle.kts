@@ -35,8 +35,8 @@ android {
         create("alert") {
             dimension = "kind"
             applicationIdSuffix = ".alert"
-            versionCode = 8
-            versionName = "1.7"
+            versionCode = 9
+            versionName = "1.8"
             buildConfigField("boolean", "ALERTS", "true")
             manifestPlaceholders["appLabel"] = "CCTV"
         }

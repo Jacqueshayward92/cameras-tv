@@ -37,6 +37,7 @@ public final class AlertTests {
         parser();
         policy();
         remoteButton();
+        frameGrid();
         server();
         System.out.println("RESULT " + passes + " passed, " + failures + " failed");
         if (failures > 0) {
@@ -126,6 +127,26 @@ public final class AlertTests {
         muted.mute(start);
         check("muted shows but stays quiet", muted.decide(1, start + 1000, night) == AlertPolicy.Action.BANNER);
         check("sound returns after mute ends", muted.decide(2, start + AlertPolicy.MUTE_MS + 1, night) == AlertPolicy.Action.SOUND);
+    }
+
+    private static void frameGrid() {
+        boolean[] seen = new boolean[FrameGrid.SIDE * FrameGrid.SIDE];
+        boolean everyChannelOnce = true;
+        for (int channel = 1; channel <= 25; channel++) {
+            int cell = FrameGrid.cellOf(channel);
+            if (cell < 0 || seen[cell]) {
+                everyChannelOnce = false;
+            } else {
+                seen[cell] = true;
+            }
+        }
+        check("channels 1 to 25 each have their own cell", everyChannelOnce);
+        check("PTZ: Front Street is top left", FrameGrid.cellOf(19) == 0);
+        check("12: Front Gate is top right", FrameGrid.cellOf(4) == 4);
+        check("12: JoJo Tank ends the second row", FrameGrid.cellOf(14) == 9);
+        check("14: Back Yard starts the fourth row", FrameGrid.cellOf(15) == 15);
+        check("Chantel: Voordeur is bottom right", FrameGrid.cellOf(8) == 24);
+        check("a channel not in the grid draws nothing", FrameGrid.cellOf(26) == -1);
     }
 
     private static void remoteButton() {

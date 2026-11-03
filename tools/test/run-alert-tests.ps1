@@ -8,7 +8,7 @@ $jdk = (Get-ChildItem "$T\android-tools\jdk" -Directory | Select-Object -First 1
 $src = "$Project\app\src\main\java\za\schoolstreet\cameras"
 $tests = "$Project\tools\test\za\schoolstreet\cameras"
 
-$compile = & "$jdk\bin\javac.exe" -encoding UTF-8 -nowarn -cp "$T\android-tools\sdk\platforms\android-34\android.jar" -d "$W\classes" "$src\AlertParser.java" "$src\AlertPolicy.java" "$src\RemoteButton.java" "$src\AlertServer.java" "$src\RecorderLink.java" "$tests\AlertTests.java" "$tests\LinkTest.java" 2>&1 | ForEach-Object { "$_" }
+$compile = & "$jdk\bin\javac.exe" -encoding UTF-8 -nowarn -cp "$T\android-tools\sdk\platforms\android-34\android.jar" -d "$W\classes" "$src\AlertParser.java" "$src\AlertPolicy.java" "$src\RemoteButton.java" "$src\FrameGrid.java" "$src\AlertServer.java" "$src\RecorderLink.java" "$tests\AlertTests.java" "$tests\LinkTest.java" 2>&1 | ForEach-Object { "$_" }
 $compile | Where-Object { $_ -match 'error' -or $_ -match '\.java:' }
 
 "=== Alert logic and listener"

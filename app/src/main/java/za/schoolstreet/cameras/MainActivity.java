@@ -70,9 +70,12 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private static final int SAFE_TOP_DP = 27;
     private static final int NOTICE_COLOR = 0xCC202020;
     private static final int PERSON_COLOR = 0xE6B00020;
+    private static final int FRAME_COLOR = 0xFFFF1A1A;
+    private static final int FRAME_STROKE_DP = 5;
 
     private final AlertPolicy alertPolicy = new AlertPolicy();
     private TextView banner;
+    private FrameHighlight frameHighlight;
     private boolean personAlertShowing;
     private final Runnable hideBanner = () -> {
         banner.setVisibility(View.GONE);
@@ -102,6 +105,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         surface.getHolder().addCallback(this);
         surface.setContentDescription("Camera grid");
         root.addView(surface);
+
+        frameHighlight = new FrameHighlight(this, FRAME_COLOR, dp(FRAME_STROKE_DP));
+        root.addView(frameHighlight);
 
         status = new TextView(this);
         status.setTextColor(Color.WHITE);
@@ -177,6 +183,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         }
         handler.removeCallbacks(hideBanner);
         hideBanner.run();
+        frameHighlight.clear();
     }
 
     private String installId() {
@@ -229,6 +236,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     }
 
     private void onHumanAlert(AlertParser.Alert alert) {
+        // Stays lit for as long as the person is seen, even when the sound and label are holding back.
+        frameHighlight.show(alert.channel, BANNER_MS);
         AlertPolicy.Action action = alertPolicy.decide(alert.channel, System.currentTimeMillis(),
                 Calendar.getInstance().get(Calendar.HOUR_OF_DAY));
         if (action == AlertPolicy.Action.NONE) {
