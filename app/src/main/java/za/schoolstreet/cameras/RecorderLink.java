@@ -15,6 +15,7 @@ import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.security.cert.X509Certificate;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -113,6 +114,16 @@ final class RecorderLink {
             added = call("POST", "/openapi/event_server", "{\"id\":\"" + mine + "\"" + tail);
         }
         requireOk(added, "add the link");
+    }
+
+    /** Reads settings without changing anything, one block of text per path. */
+    String readSettings(List<String> paths) throws IOException {
+        login();
+        StringBuilder answers = new StringBuilder();
+        for (String path : paths) {
+            answers.append(path).append('\n').append(decode(call("GET", path, null))).append("\n\n");
+        }
+        return answers.toString();
     }
 
     private void login() throws IOException {

@@ -46,7 +46,7 @@ import java.util.List;
 /** Opens straight into the recorder's Channel-Zero grid and keeps it running. */
 public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
-    private static final String RECORDER_HOST = "192.168.0.224";
+    static final String RECORDER_HOST = "192.168.0.224";
     private static final int RECORDER_PORT = 554;
     private static final String GRID_PATH = "/live/0/1/avm";
 
@@ -70,7 +70,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private volatile long lastGoodAt;
 
     private static final int ALERT_PORT = 8787;
-    private static final int OPENAPI_PORT = 20443;
+    static final int OPENAPI_PORT = 20443;
     private static final int BANNER_MS = 15000;
     private static final int NOTICE_MS = 6000;
     private static final int SAFE_SIDE_DP = 48;

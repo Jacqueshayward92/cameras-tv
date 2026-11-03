@@ -57,12 +57,13 @@ final class AlertParser {
         return alerts;
     }
 
-    /** People on the public street aren't a reason to alarm. The name decides, and channel numbers are only a fallback. */
+    /**
+     * People on the public street aren't a reason to alarm: channels 1, 2, 3 and 19, or "street" in the name.
+     * The recorder confirmed these numbers. Channel 3's name is still its factory name, so the name alone would miss it.
+     */
     private static boolean isStreetCamera(int channel, String name) {
-        if (!name.isEmpty()) {
-            return name.toLowerCase(Locale.ROOT).contains("street");
-        }
-        return channel == 1 || channel == 2 || channel == 3 || channel == 19;
+        return channel == 1 || channel == 2 || channel == 3 || channel == 19
+                || name.toLowerCase(Locale.ROOT).contains("street");
     }
 
     private static String decodeIfEncoded(String message) {

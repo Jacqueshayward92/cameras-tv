@@ -165,9 +165,10 @@ public final class AlertTests {
         check("a sent quote and unicode letter are decoded", human(
                 "{\"messages\":[{\"type\":1,\"sub_type\":[21],\"channel\":\"30\",\"channel_name\":\"A \\\"B\\\" \\u0043\"}]}",
                 30, "A \"B\" C"));
-        check("a home camera on a street channel number still alerts", human(
-                "{\"messages\":[{\"type\":1,\"sub_type\":[21],\"channel\":\"2\",\"channel_name\":\"Chantel: Voordeur\"}]}",
-                2, "Chantel: Voordeur"));
+        check("channel 3 stays quiet under its factory name", none(
+                "{\"messages\":[{\"type\":1,\"sub_type\":[21],\"channel\":\"3\",\"channel_name\":\"VIGI C350 1.0_F0C1\"}]}"));
+        check("a real motion and vehicle message is ignored", none(
+                "{ \"device_name\": \"NVR: 12 School Street\", \"messages\": [ { \"type\": 1, \"sub_type\": [ 2, 102 ], \"localtime\": \"2026-11-03 13:46:11\", \"channel\": \"25\", \"channel_name\": \"12: Driveway\\/Backyard Gate\" } ] }"));
         check("a street camera on another number stays quiet", none(
                 "{\"messages\":[{\"type\":1,\"sub_type\":[21],\"channel\":\"8\",\"channel_name\":\"Street: Left\"}]}"));
     }
