@@ -1,4 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="remote_button_description">Lets one remote button you choose open Cameras Alert. The app only looks for that button and does not save or send any other button presses.</string>
+    <string name="remote_button_description">Lets one remote button you choose open CCTV. The app only looks for that button and does not save or send any other button presses.</string>
 </resources>

@@ -484,7 +484,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 builder.setNeutralButton("Remove", (dialog, which) -> RemoteButtonService.clear(this));
             }
         } else {
-            builder.setMessage("In the next screen, choose Cameras Alert remote button and switch it on."
+            builder.setMessage("In the next screen, choose CCTV remote button and switch it on."
                             + " The app only looks for the one button you choose.")
                     .setPositiveButton("Open settings", (dialog, which) -> openAccessibilitySettings())
                     .setNegativeButton("Cancel", null);

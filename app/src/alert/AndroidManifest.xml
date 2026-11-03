@@ -5,7 +5,7 @@
         <service
             android:name="za.schoolstreet.cameras.RemoteButtonService"
             android:exported="true"
-            android:label="Cameras Alert remote button"
+            android:label="CCTV remote button"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
             <intent-filter>
                 <action android:name="android.accessibilityservice.AccessibilityService" />
