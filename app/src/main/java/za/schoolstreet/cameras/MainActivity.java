@@ -35,9 +35,12 @@ import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import java.io.File;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Calendar;
+import java.util.Date;
 import java.util.List;
 
 /** Opens straight into the recorder's Channel-Zero grid and keeps it running. */
@@ -78,6 +81,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private static final int FRAME_STROKE_DP = 5;
     private static final int NIGHT_HINT_MS = 4000;
     private static final int HINT_OPENS = 3;
+    private static final int ALERT_LOG_BYTES = 200000;
+    private static final int ALERT_LOG_LINE = 800;
 
     private final AlertPolicy alertPolicy = new AlertPolicy();
     private TextView banner;
@@ -290,7 +295,24 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         });
     }
 
+    /** Keeps the recorder's recent messages on this TV, so real alerts can be checked against the grid. */
+    private void keepForChecking(String body) {
+        File dir = getExternalFilesDir(null);
+        if (dir == null) {
+            return;
+        }
+        File file = new File(dir, "alerts.txt");
+        boolean startAgain = file.length() > ALERT_LOG_BYTES;
+        String shortened = body.length() > ALERT_LOG_LINE ? body.substring(0, ALERT_LOG_LINE) : body;
+        try (FileWriter writer = new FileWriter(file, !startAgain)) {
+            writer.write(new Date() + " " + shortened.replace('\n', ' ').replace('\r', ' ') + "\n");
+        } catch (IOException ignored) {
+            // Only a record, so alerts carry on without it.
+        }
+    }
+
     private void onRecorderMessage(String body) {
+        keepForChecking(body);
         List<AlertParser.Alert> alerts = AlertParser.humanAlerts(body);
         handler.post(() -> {
             if (!started) {
@@ -311,15 +333,16 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private void onHumanAlert(AlertParser.Alert alert) {
         lightUp();
         // Stays lit for as long as the person is seen, even when the sound and label are holding back.
-        frameHighlight.show(alert.channel, BANNER_MS);
+        int cell = FrameGrid.cellOf(alert.channel, alert.name);
+        frameHighlight.show(cell, BANNER_MS);
         AlertPolicy.Action action = alertPolicy.decide(alert.channel, System.currentTimeMillis(),
                 Calendar.getInstance().get(Calendar.HOUR_OF_DAY));
         if (action == AlertPolicy.Action.NONE) {
             return;
         }
         String where = alert.name.isEmpty() ? "camera " + alert.channel : alert.name;
-        placeBanner(FrameGrid.labelGoesLeft(alert.channel));
-        showLabel("Person: " + where, PERSON_COLOR, BANNER_MS);
+        placeBanner(FrameGrid.labelGoesLeft(cell));
+        showLabel("Person at " + where, PERSON_COLOR, BANNER_MS);
         personAlertShowing = true;
         if (action == AlertPolicy.Action.SOUND) {
             alarmTone.play();

@@ -133,7 +133,7 @@ public final class AlertTests {
         boolean[] seen = new boolean[FrameGrid.SIDE * FrameGrid.SIDE];
         boolean everyChannelOnce = true;
         for (int channel = 1; channel <= 25; channel++) {
-            int cell = FrameGrid.cellOf(channel);
+            int cell = FrameGrid.cellOf(channel, "");
             if (cell < 0 || seen[cell]) {
                 everyChannelOnce = false;
             } else {
@@ -141,16 +141,35 @@ public final class AlertTests {
             }
         }
         check("channels 1 to 25 each have their own cell", everyChannelOnce);
-        check("PTZ: Front Street is top left", FrameGrid.cellOf(19) == 0);
-        check("12: Front Gate is top right", FrameGrid.cellOf(4) == 4);
-        check("12: JoJo Tank ends the second row", FrameGrid.cellOf(14) == 9);
-        check("14: Back Yard starts the fourth row", FrameGrid.cellOf(15) == 15);
-        check("Chantel: Voordeur is bottom right", FrameGrid.cellOf(8) == 24);
-        check("a channel not in the grid draws nothing", FrameGrid.cellOf(26) == -1);
+        String[] grid = {
+                "PTZ: Front Street", "Street: Left", "Street: Below Camera Pole", "Street: Right", "12: Front Gate",
+                "12: Front Yard / Driveway", "12: Backyard Gate", "12: Front Door", "12: Backyard", "12: JoJo Tank",
+                "12: Borehole", "12: Front Yard / Borehole", "12: Front Yard Main Bedroom", "14: Solar / Roof", "14: Front Yard",
+                "14: Back Yard", "14: Front Gate", "14: Front Gate/Alley", "14: Alley Front", "14: Alley Back",
+                "14: Courtyard/Alley", "14: Garage", "12: Driveway/Backyard Gate", "Chantel: Hek", "Chantel: Voordeur",
+        };
+        for (int cell = 0; cell < grid.length; cell++) {
+            check(grid[cell] + " is found by name with a wrong channel number", FrameGrid.cellOf(99, grid[cell]) == cell);
+        }
+        check("spacing and capitals in a name don't matter", FrameGrid.cellOf(99, "12:front yard/driveway") == 5);
+        check("an unknown name falls back to the channel", FrameGrid.cellOf(4, "New name") == 4);
+        check("an unknown name and channel draws nothing", FrameGrid.cellOf(26, "New name") == -1);
         check("a person at top right moves the label left", FrameGrid.labelGoesLeft(4));
-        check("a person at top left leaves the label right", !FrameGrid.labelGoesLeft(19));
-        check("a person lower down leaves the label right", !FrameGrid.labelGoesLeft(14));
-        check("an unknown channel leaves the label right", !FrameGrid.labelGoesLeft(26));
+        check("a person at top left leaves the label right", !FrameGrid.labelGoesLeft(0));
+        check("a person lower down leaves the label right", !FrameGrid.labelGoesLeft(9));
+        check("an unknown camera leaves the label right", !FrameGrid.labelGoesLeft(-1));
+
+        check("a sent \\/ shows as a plain slash", human(
+                "{\"messages\":[{\"type\":1,\"sub_type\":[21],\"channel\":\"25\",\"channel_name\":\"12: Driveway\\/Backyard Gate\"}]}",
+                25, "12: Driveway/Backyard Gate"));
+        check("a sent quote and unicode letter are decoded", human(
+                "{\"messages\":[{\"type\":1,\"sub_type\":[21],\"channel\":\"30\",\"channel_name\":\"A \\\"B\\\" \\u0043\"}]}",
+                30, "A \"B\" C"));
+        check("a home camera on a street channel number still alerts", human(
+                "{\"messages\":[{\"type\":1,\"sub_type\":[21],\"channel\":\"2\",\"channel_name\":\"Chantel: Voordeur\"}]}",
+                2, "Chantel: Voordeur"));
+        check("a street camera on another number stays quiet", none(
+                "{\"messages\":[{\"type\":1,\"sub_type\":[21],\"channel\":\"8\",\"channel_name\":\"Street: Left\"}]}"));
     }
 
     private static void remoteButton() {

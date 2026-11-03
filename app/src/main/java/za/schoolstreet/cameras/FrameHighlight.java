@@ -20,8 +20,7 @@ final class FrameHighlight extends View {
         paint.setStrokeWidth(strokeWidth);
     }
 
-    void show(int channel, long forMs) {
-        int cell = FrameGrid.cellOf(channel);
+    void show(int cell, long forMs) {
         if (cell < 0) {
             return;
         }

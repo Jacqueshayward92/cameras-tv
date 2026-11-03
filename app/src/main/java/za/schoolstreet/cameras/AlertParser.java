@@ -23,7 +23,7 @@ final class AlertParser {
     private static final Pattern SUB_TYPE = Pattern.compile(
             "\"(?:sub_type|Event Sub Type)\"\\s*:\\s*(\\[[^\\]]*\\]|\"[^\"]*\"|\\d+)");
     private static final Pattern CHANNEL = Pattern.compile("\"(?:channel|Camera)\"\\s*:\\s*\"?(\\d+)");
-    private static final Pattern NAME = Pattern.compile("\"(?:channel_name|Camera Name)\"\\s*:\\s*\"([^\"]*)\"");
+    private static final Pattern NAME = Pattern.compile("\"(?:channel_name|Camera Name)\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"");
     private static final Pattern NUMBER = Pattern.compile("\\d+");
 
     static final class Alert {
@@ -57,10 +57,12 @@ final class AlertParser {
         return alerts;
     }
 
-    /** People on the public street aren't a reason to alarm: channels 1, 2, 3 and 19, or "street" in the name. */
+    /** People on the public street aren't a reason to alarm. The name decides, and channel numbers are only a fallback. */
     private static boolean isStreetCamera(int channel, String name) {
-        return channel == 1 || channel == 2 || channel == 3 || channel == 19
-                || name.toLowerCase(Locale.ROOT).contains("street");
+        if (!name.isEmpty()) {
+            return name.toLowerCase(Locale.ROOT).contains("street");
+        }
+        return channel == 1 || channel == 2 || channel == 3 || channel == 19;
     }
 
     private static String decodeIfEncoded(String message) {
@@ -111,6 +113,32 @@ final class AlertParser {
 
     private static String nameOf(String object) {
         Matcher name = NAME.matcher(object);
-        return name.find() ? name.group(1) : "";
+        return name.find() ? plainText(name.group(1)) : "";
+    }
+
+    /** Undoes JSON's escaping, which is why a camera's "/" arrives as "\/". */
+    private static String plainText(String escaped) {
+        StringBuilder text = new StringBuilder(escaped.length());
+        for (int i = 0; i < escaped.length(); i++) {
+            char c = escaped.charAt(i);
+            if (c != '\\' || i + 1 == escaped.length()) {
+                text.append(c);
+                continue;
+            }
+            char next = escaped.charAt(++i);
+            if (next == 'u' && i + 4 < escaped.length()) {
+                try {
+                    text.append((char) Integer.parseInt(escaped.substring(i + 1, i + 5), 16));
+                    i += 4;
+                } catch (NumberFormatException e) {
+                    text.append(next);
+                }
+            } else if (next == 'n' || next == 't' || next == 'r') {
+                text.append(' ');
+            } else {
+                text.append(next);
+            }
+        }
+        return text.toString();
     }
 }
