@@ -1,5 +1,7 @@
 package za.schoolstreet.cameras;
 
+import android.view.KeyEvent;
+
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.Socket;
@@ -34,6 +36,7 @@ public final class AlertTests {
     public static void main(String[] args) throws Exception {
         parser();
         policy();
+        remoteButton();
         server();
         System.out.println("RESULT " + passes + " passed, " + failures + " failed");
         if (failures > 0) {
@@ -123,6 +126,26 @@ public final class AlertTests {
         muted.mute(start);
         check("muted shows but stays quiet", muted.decide(1, start + 1000, night) == AlertPolicy.Action.BANNER);
         check("sound returns after mute ends", muted.decide(2, start + AlertPolicy.MUTE_MS + 1, night) == AlertPolicy.Action.SOUND);
+    }
+
+    private static void remoteButton() {
+        int[] kept = {KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_LEFT,
+                KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER,
+                KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_HOME, KeyEvent.KEYCODE_SETTINGS, KeyEvent.KEYCODE_POWER,
+                KeyEvent.KEYCODE_TV_POWER, KeyEvent.KEYCODE_VOLUME_UP, KeyEvent.KEYCODE_VOLUME_DOWN};
+        for (int key : kept) {
+            check("button " + key + " can't be taken over", !RemoteButton.canUse(key, 100));
+        }
+        check("a colour button can be chosen", RemoteButton.canUse(KeyEvent.KEYCODE_PROG_RED, 100));
+        check("a number button can be chosen", RemoteButton.canUse(KeyEvent.KEYCODE_1, 100));
+        check("an unnamed TV button can be chosen", RemoteButton.canUse(KeyEvent.KEYCODE_UNKNOWN, 700));
+        check("a press with no name or number can't be chosen", !RemoteButton.canUse(KeyEvent.KEYCODE_UNKNOWN, 0));
+
+        check("the chosen button matches", RemoteButton.matches(KeyEvent.KEYCODE_PROG_RED, 100, KeyEvent.KEYCODE_PROG_RED, 100));
+        check("another button doesn't match", !RemoteButton.matches(KeyEvent.KEYCODE_PROG_RED, 100, KeyEvent.KEYCODE_PROG_BLUE, 100));
+        check("an unnamed TV button matches by its number", RemoteButton.matches(KeyEvent.KEYCODE_UNKNOWN, 700, KeyEvent.KEYCODE_UNKNOWN, 700));
+        check("another unnamed TV button doesn't match", !RemoteButton.matches(KeyEvent.KEYCODE_UNKNOWN, 700, KeyEvent.KEYCODE_UNKNOWN, 701));
+        check("a named button doesn't match an unnamed choice", !RemoteButton.matches(KeyEvent.KEYCODE_UNKNOWN, 700, KeyEvent.KEYCODE_PROG_RED, 700));
     }
 
     private static String post(int port, String headersExtra, String body, boolean declareLength) throws IOException {

@@ -2,6 +2,8 @@ package za.schoolstreet.cameras;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.ActivityNotFoundException;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.Typeface;
@@ -12,6 +14,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.Settings;
 import android.text.InputType;
 import android.text.TextUtils;
 import android.view.Gravity;
@@ -79,6 +82,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private AlarmTone alarmTone;
     private boolean linkLoginRejected;
     private volatile boolean recorderSeen;
+    private AlertDialog buttonDialog;
+    private boolean backFromAccessibilitySettings;
 
     /** A short drop right after good video recovers on its own, so no message is needed. */
     private boolean recentlyPlaying() {
@@ -273,6 +278,14 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         if (hasLogin()) {
             startFeed();
             startAlerts();
+            if (backFromAccessibilitySettings) {
+                backFromAccessibilitySettings = false;
+                if (RemoteButtonService.isOn()) {
+                    showButtonSetup();
+                } else {
+                    showBanner("The remote button isn't switched on yet", NOTICE_MS);
+                }
+            }
         } else {
             showLogin();
         }
@@ -281,6 +294,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     @Override
     protected void onStop() {
         super.onStop();
+        if (buttonDialog != null) {
+            buttonDialog.dismiss();
+        }
         started = false;
         stopFeed();
         stopAlerts();
@@ -398,6 +414,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         if (canGoBack) {
             builder.setNegativeButton("Cancel", (dialog, which) -> resumeAfterLogin())
                     .setOnCancelListener(dialog -> resumeAfterLogin());
+            if (BuildConfig.ALERTS) {
+                builder.setNeutralButton("Remote button", (dialog, which) -> showButtonSetup());
+            }
         }
         loginDialog = builder.create();
         loginDialog.show();
@@ -434,6 +453,49 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private void resumeAfterLogin() {
         startFeed();
         startAlerts();
+    }
+
+    private void showButtonSetup() {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this).setTitle("Remote button");
+        boolean on = RemoteButtonService.isOn();
+        if (on) {
+            String chosen = RemoteButtonService.chosenName(this);
+            builder.setMessage("Press the button that should open this app. It will stop doing its usual job."
+                            + (chosen == null ? "" : "\n\nNow using: " + chosen))
+                    .setNegativeButton("Cancel", null);
+            if (chosen != null) {
+                builder.setNeutralButton("Remove", (dialog, which) -> RemoteButtonService.clear(this));
+            }
+        } else {
+            builder.setMessage("In the next screen, choose Cameras Alert remote button and switch it on."
+                            + " The app only looks for the one button you choose.")
+                    .setPositiveButton("Open settings", (dialog, which) -> openAccessibilitySettings())
+                    .setNegativeButton("Cancel", null);
+        }
+        buttonDialog = builder.create();
+        buttonDialog.setOnDismissListener(dialog -> {
+            RemoteButtonService.stopLearning();
+            buttonDialog = null;
+            resumeAfterLogin();
+        });
+        buttonDialog.show();
+        if (on) {
+            RemoteButtonService.learn(() -> {
+                if (buttonDialog != null) {
+                    buttonDialog.dismiss();
+                }
+                showBanner(RemoteButtonService.chosenName(this) + " now opens this app", NOTICE_MS);
+            });
+        }
+    }
+
+    private void openAccessibilitySettings() {
+        backFromAccessibilitySettings = true;
+        try {
+            startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
+        } catch (ActivityNotFoundException e) {
+            startActivity(new Intent(Settings.ACTION_SETTINGS));
+        }
     }
 
     private TextView fieldLabel(String text) {
